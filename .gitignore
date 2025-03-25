@@ -80,6 +80,7 @@ nohup.out
 resources/dataset/*
 resources/dataset/*/
 !resources/dataset/pack.db
+!resources/dQw4w9WgXcQ.wav
 
 *.ipynb
 *.lprof

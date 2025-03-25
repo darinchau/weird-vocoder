@@ -7,6 +7,12 @@ import torchaudio.functional as F
 
 
 class Vggish:
+    """Wraps a VGGish model for feature extraction.
+
+    Input: Audio or tuple[torch.Tensor, int]: Audio or a tuple of waveform and sample rate. The waveform must be in the range [-1, 1] and the tensor must have shape (C, T) or (B, C, T).
+    Output: torch.Tensor: The extracted features. The tensor has shape (B, C, D) or (C, D) where B is the batch size, C is the number of channels, and D is the number of frames.
+    """
+
     def __init__(self):
         self.input_sr = VGGISH.sample_rate
         self.input_proc = VGGISH.get_input_processor()
