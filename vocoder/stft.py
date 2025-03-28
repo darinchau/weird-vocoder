@@ -46,7 +46,7 @@ class STFT:
         assert isinstance(mel, torch.Tensor), f"Expected output to be a tensor, got {type(mel)}"
         if bs is None:
             bs = mel.shape[0]
-        assert mel.shape == (bs, self.n, self.t), f"Expected output to have shape (B, {self.n}, {self.t}), got {mel.shape}"
+        assert mel.shape[2] == self.t, f"Expected output to have shape (B, nmels, {self.t}), got {mel.shape}"
         assert torch.is_floating_point(mel), f"Expected output to be floating point, got {mel.dtype}"
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -84,7 +84,7 @@ class STFT:
         self._assert_is_audio(x, bs=z.shape[0])
         return x
 
-    def mel(self, x: torch.Tensor, sample_rate: int):
+    def mel(self, x: torch.Tensor, sample_rate: int, nmels: int = 80):
         self._assert_is_audio(x)
 
         # Compute the mel filterbank
@@ -93,7 +93,7 @@ class STFT:
             n_fft=self.n_fft,
             hop_length=self.hop_length,
             win_length=self.n_fft,
-            n_mels=self.n,
+            n_mels=nmels,
             center=True,
             pad_mode='reflect',
             power=2.0,
@@ -102,13 +102,13 @@ class STFT:
         self._assert_is_mel(mel, bs=x.shape[0])
         return mel
 
-    def mel_librosa(self, x: torch.Tensor, sample_rate: int):
+    def mel_librosa(self, x: torch.Tensor, sample_rate: int, nmels: int = 80):
         self._assert_is_audio(x)
         assert x.ndim == 2, f"Expected input to have 2 dimensions, got {x.ndim}"
         assert x.shape[1] == self.l, f"Expected input to have shape (B, {self.l}), got {x.shape}"
 
         stft_ = np.abs(librosa.stft(x.numpy(), n_fft=self.n_fft, hop_length=self.hop_length))
-        mel = librosa.feature.melspectrogram(sr=sample_rate, S=stft_**2, n_mels=self.n)
+        mel = librosa.feature.melspectrogram(sr=sample_rate, S=stft_**2, n_mels=nmels)
         mel = torch.from_numpy(mel)
 
         self._assert_is_mel(mel, bs=x.shape[0])
@@ -129,3 +129,56 @@ class STFT:
         img = librosa.display.specshow(spec, sr=sample_rate, x_axis='time', y_axis='linear', cmap='viridis')
         cb = fig.colorbar(img, ax=ax, format='%+2.0f dB')
         return fig, ax
+
+
+def make_stft(
+    audio_length: int | None = None,
+    n: int | None = None,
+    t: int | None = None,
+    hop_length: int | None = None,
+    ensure_relations: bool = True,
+) -> STFT:
+    """Make a STFT object with the given parameters. If ensure_relations is True, we will try to enforce the relations between the parameters."""
+    if n is None and t is None:
+        # Give a random default to n and move on
+        n = 513
+
+    # If audio_length is not None and the other ones are not None
+    if n is not None and t is not None:
+        stft = STFT(n, t)
+        if hop_length is not None:
+            stft.hop_length = hop_length
+        if ensure_relations and audio_length is not None:
+            assert stft.l == audio_length, f"Audio length must be {stft.l}, but got {audio_length}"
+        stft._skip_checks = not ensure_relations
+        return stft
+
+    assert audio_length is not None, "Audio length must be provided if exactly one of n or t are not provided"
+    assert n is not None or t is not None, "Either n or t must be provided"
+
+    if n is not None:
+        if hop_length is None:
+            hop_length = n // 4
+        t = 1 + audio_length // hop_length
+        stft = STFT(n, t)
+        stft.hop_length = hop_length
+        assert stft.l == audio_length, f"Audio length must be {stft.l}, but got {audio_length}"
+        stft._skip_checks = not ensure_relations
+        return stft
+
+    assert t is not None
+    assert audio_length % (t - 1) == 0, "The audio length must be divisible by t - 1"
+    assert t > 1, "t must be greater than 1"
+
+    if hop_length is None:
+        hop_length = audio_length // (t - 1)
+
+    # Try to make more overlap by default - set n to the previous power of 2 of 4 * hop_length and then + 1
+    n = 1 << np.floor(np.log2(4 * hop_length)) + 1
+    assert n is not None
+
+    stft = STFT(n, t)
+    stft.hop_length = hop_length
+    assert stft.l == audio_length, f"Audio length must be {stft.l}, but got {audio_length}"
+    stft._skip_checks = not ensure_relations
+    return stft
